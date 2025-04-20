@@ -103,11 +103,6 @@ addon.defineCatalogHandler(async ({ type, id, extra }) => {
 // Add static file serving for the logo and background
 app.use(express.static('static'))
 
-// Create the stremio addon routes
-// This uses the serveHTTP function internally to create all the necessary endpoints
-const addonRouter = addon.getRouter()
-app.use('/', addonRouter)
-
 // Add a specific route for manifest.json with proper CORS
 app.get('/manifest.json', (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*')
@@ -180,6 +175,18 @@ app.get('/', (req, res) => {
             </body>
         </html>
     `)
+})
+
+// Serve the addon using the Stremio SDK's serveHTTP function
+// This creates all the necessary Stremio endpoints
+serveHTTP(addon.getInterface(), { 
+    app,  // Use our existing Express app
+    port: PORT, 
+    cache: {
+        maxAge: 86400, // Cache for 24 hours
+        public: true
+    },
+    cors: true  // Enable CORS
 })
 
 // Start the server
