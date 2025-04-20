@@ -19,7 +19,8 @@ const addon = new addonBuilder({
     // IMPORTANT: Define only the resources we actually use
     resources: ['meta'],
     types: ['movie', 'series'],
-    idPrefixes: ['tt']  // Only handle IMDB IDs
+    idPrefixes: ['tt'],  // Only handle IMDB IDs
+    catalogs: []  // Empty array, not missing field
 })
 
 // Helper function to fetch IMDB rating
