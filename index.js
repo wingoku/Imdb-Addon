@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 3000
 // Get the host URL (this will be set by Render)
 // For local development, default to localhost
 const isDev = process.env.NODE_ENV !== 'production'
-const HOST_URL = isDev ? `http://localhost:${PORT}` : process.env.RENDER_EXTERNAL_URL
+const HOST_URL = isDev ? `http://localhost:${PORT}` : process.env.RENDER_EXTERNAL_URL || `https://stremio-imdb-ratings.onrender.com`
 
 // Create Express app
 const app = express()
@@ -178,10 +178,10 @@ app.get('/', (req, res) => {
 })
 
 // Serve the addon using the Stremio SDK's serveHTTP function
-// This creates all the necessary Stremio endpoints
+// This creates all the necessary Stremio endpoints AND starts the server
 serveHTTP(addon.getInterface(), { 
-    app,  // Use our existing Express app
-    port: PORT, 
+    port: PORT,
+    static: 'static',
     cache: {
         maxAge: 86400, // Cache for 24 hours
         public: true
@@ -189,8 +189,6 @@ serveHTTP(addon.getInterface(), {
     cors: true  // Enable CORS
 })
 
-// Start the server
-app.listen(PORT, () => {
-    console.log(`IMDB Ratings addon running on port ${PORT}`)
-    console.log(`Add this URL in Stremio: ${HOST_URL}/manifest.json`)
-})
+// We don't need app.listen() anymore since serveHTTP handles that
+console.log(`IMDB Ratings addon running on port ${PORT}`)
+console.log(`Add this URL in Stremio: ${HOST_URL}/manifest.json`)
