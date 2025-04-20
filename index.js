@@ -1,34 +1,31 @@
-// index.js - Main addon file
+// server.js - Simplified Stremio IMDB Ratings Addon
 const { addonBuilder } = require('stremio-addon-sdk')
 const fetch = require('node-fetch')
+const express = require('express')
+const cors = require('cors')
 
 // Replace with your actual OMDB API key
 const OMDB_API_KEY = '1aa1dd73'
 
-// Get port from environment variable (Render provides this)
+// Get port from environment variable
 const PORT = process.env.PORT || 3000
 
-// Get the hostname from environment or use localhost for local development
-const BASE_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`
-
-// Create a new addon with proper base URL
+// Create a new addon builder
 const addon = new addonBuilder({
     id: 'org.imdbratings',
     version: '1.0.0',
-    name: 'IMDB Ratings Overlay',
-    description: 'Displays IMDB ratings directly in Stremio',
-    resources: ['catalog', 'meta'],  // Add 'meta' resource for metadetails
+    name: 'IMDB Ratings',
+    description: 'Add IMDB ratings to movies and series',
+    // IMPORTANT: Define only the resources we actually use
+    resources: ['meta'],
     types: ['movie', 'series'],
-    catalogs: [],
-    // Use the Render URL for assets
-    background: `${BASE_URL}/background.jpg`,
-    logo: `${BASE_URL}/logo.png`,
-    contactEmail: 'your-email@example.com'
+    idPrefixes: ['tt']  // Only handle IMDB IDs
 })
 
 // Helper function to fetch IMDB rating
-async function getIMDBRating(imdbId) {
+async function fetchOMDBData(imdbId) {
     try {
+        console.log(`Fetching OMDB data for: ${imdbId}`)
         const response = await fetch(`http://www.omdbapi.com/?i=${imdbId}&apikey=${OMDB_API_KEY}`)
         const data = await response.json()
         
@@ -37,117 +34,102 @@ async function getIMDBRating(imdbId) {
             return null
         }
         
-        // Return more data for meta handler
-        return {
-            imdbRating: data.imdbRating !== 'N/A' ? data.imdbRating : null,
-            imdbVotes: data.imdbVotes !== 'N/A' ? data.imdbVotes : null,
-            plot: data.Plot !== 'N/A' ? data.Plot : null,
-            director: data.Director !== 'N/A' ? data.Director : null,
-            actors: data.Actors !== 'N/A' ? data.Actors : null,
-            year: data.Year !== 'N/A' ? data.Year : null
-        }
+        console.log(`Successfully retrieved data for ${imdbId}: Rating=${data.imdbRating}`)
+        return data
     } catch (error) {
         console.error(`Error fetching IMDB data for ${imdbId}:`, error)
         return null
     }
 }
 
-// Define catalog handler
-addon.defineCatalogHandler(async ({ type, id }) => {
-    // Only proceed if we're dealing with a catalog
-    if (!type || !id) {
-        return { metas: [] }
-    }
-
-    try {
-        // Call the original addon to get the catalog
-        const originalAddonUrl = `https://v3-cinemeta.strem.io/catalog/${type}/${id}.json`
-        const response = await fetch(originalAddonUrl)
-        const catalog = await response.json()
-
-        // Process each item to add a visual cue that this has IMDB ratings
-        // (we'll actually add the ratings in the meta handler)
-        const updatedMetas = catalog.metas.map(meta => {
-            // Add a prefix to show this has enhanced data
-            meta.name = `★ ${meta.name}`;
-            return meta;
-        });
-
-        return { metas: updatedMetas }
-    } catch (error) {
-        console.error('Error in catalog handler:', error)
-        return { metas: [] }
-    }
-})
-
-// Define meta handler to enhance metadata with IMDB ratings
+// Define meta handler - this is the only handler we actually need
 addon.defineMetaHandler(async ({ type, id }) => {
-    if (!type || !id) {
+    // Only handle movie/series with IMDB IDs
+    if (!id || !id.startsWith('tt') || !['movie', 'series'].includes(type)) {
+        console.log(`Skipping non-IMDB ID: ${id}, type: ${type}`)
         return { meta: null }
     }
 
+    console.log(`Processing meta request for ${type}/${id}`)
+    
     try {
-        // First get the original metadata
-        const originalMetaUrl = `https://v3-cinemeta.strem.io/meta/${type}/${id}.json`
-        const response = await fetch(originalMetaUrl)
-        const originalMeta = await response.json()
-
-        if (!originalMeta.meta) {
+        // Get original metadata from Cinemeta
+        const cinemetaUrl = `https://v3-cinemeta.strem.io/meta/${type}/${id}.json`
+        console.log(`Fetching original metadata from: ${cinemetaUrl}`)
+        
+        const response = await fetch(cinemetaUrl)
+        const data = await response.json()
+        
+        if (!data || !data.meta) {
+            console.error(`Failed to get metadata from Cinemeta for ${id}`)
             return { meta: null }
         }
-
-        const meta = originalMeta.meta
-        const imdbId = meta.imdbId || (meta.id && meta.id.startsWith('tt') ? meta.id : null)
-
-        if (imdbId) {
-            const imdbData = await getIMDBRating(imdbId)
+        
+        // Get the metadata we'll enhance
+        const meta = data.meta
+        
+        // Fetch IMDB data
+        const imdbData = await fetchOMDBData(id)
+        
+        if (imdbData && imdbData.imdbRating && imdbData.imdbRating !== 'N/A') {
+            // Update name to include the rating
+            meta.name = `${meta.name} [IMDb: ${imdbData.imdbRating}]`
             
-            if (imdbData && imdbData.imdbRating) {
-                // Enhance the metadata with IMDB ratings
-                meta.name = `${meta.name} (IMDb: ${imdbData.imdbRating})`
+            // Update description
+            if (meta.description) {
+                const ratingInfo = `IMDb Rating: ${imdbData.imdbRating}/10`
+                const votesInfo = imdbData.imdbVotes && imdbData.imdbVotes !== 'N/A' 
+                    ? ` (${imdbData.imdbVotes} votes)` 
+                    : ''
                 
-                // Add more detailed information if available
-                if (meta.description && imdbData.plot) {
-                    meta.description = `${meta.description}\n\nIMDb: ${imdbData.imdbRating}/10 (${imdbData.imdbVotes} votes)`
-                    
-                    // Add director and actors if available and not already in description
-                    if (imdbData.director && !meta.description.includes(imdbData.director)) {
-                        meta.description += `\nDirector: ${imdbData.director}`
-                    }
-                    
-                    if (imdbData.actors && !meta.description.includes(imdbData.actors)) {
-                        meta.description += `\nStars: ${imdbData.actors}`
-                    }
-                }
+                meta.description = `${meta.description}\n\n${ratingInfo}${votesInfo}`
             }
+            
+            console.log(`Enhanced metadata for ${id} with rating: ${imdbData.imdbRating}`)
+        } else {
+            console.log(`No IMDB rating available for ${id}`)
         }
-
+        
         return { meta }
     } catch (error) {
-        console.error('Error in meta handler:', error)
+        console.error(`Error in meta handler for ${id}:`, error)
         return { meta: null }
     }
 })
 
-// Start the addon with proper CORS settings
-const express = require('express')
-const cors = require('cors')
-const { serveHTTP } = require('stremio-addon-sdk')
-
+// Create express app
 const app = express()
 app.use(cors())
 
-// Add a health check endpoint
-app.get('/health', (req, res) => {
-    res.status(200).send('IMDB Ratings addon is running');
-});
-
-// Serve the addon
-serveHTTP(addon.getInterface(), { 
-    port: PORT, 
-    host: '0.0.0.0', // Use 0.0.0.0 to listen on all interfaces
-    app
+// Add verbose logging middleware
+app.use((req, res, next) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`)
+    next()
 })
 
-console.log(`IMDB Ratings addon running at ${BASE_URL}`)
-console.log(`Add this URL in Stremio: ${BASE_URL}/manifest.json`)
+// Add a test endpoint to verify the addon is running
+app.get('/health', (req, res) => {
+    res.send('IMDB Ratings Addon is running!')
+})
+
+// Add a debug endpoint to test OMDB API
+app.get('/test-omdb/:imdbId', async (req, res) => {
+    try {
+        const data = await fetchOMDBData(req.params.imdbId)
+        res.json(data)
+    } catch (error) {
+        res.status(500).json({ error: error.message })
+    }
+})
+
+// Serve the addon on our express app
+const { serveHTTP } = require('stremio-addon-sdk')
+serveHTTP(addon.getInterface(), { app, port: PORT })
+
+app.listen(PORT, () => {
+    console.log(`IMDB Ratings addon running on port ${PORT}`)
+    console.log(`Add this URL in Stremio: http://localhost:${PORT}/manifest.json`)
+    if (process.env.RENDER_EXTERNAL_URL) {
+        console.log(`Or this URL if deployed on Render: ${process.env.RENDER_EXTERNAL_URL}/manifest.json`)
+    }
+})
