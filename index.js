@@ -1,27 +1,18 @@
-// index.js - Main addon file optimized for Render hosting
-const { addonBuilder, serveHTTP } = require('stremio-addon-sdk')
+// index.js - Main addon file
+const { addonBuilder } = require('stremio-addon-sdk')
 const fetch = require('node-fetch')
-const express = require('express')
-const { setupOverlayService } = require('./overlay-service')
+const { startOverlayService } = require('./overlay-service')
 
 // Replace with your actual OMDB API key
 const OMDB_API_KEY = '1aa1dd73'
 
-// Get port from environment variable (Render sets this automatically)
-const PORT = process.env.PORT || 3000
+// Overlay service port
+const OVERLAY_PORT = 7001
 
-// Get the host URL (this will be set by Render)
-// For local development, default to localhost
-const isDev = process.env.NODE_ENV !== 'production'
-const HOST_URL = isDev ? `http://localhost:${PORT}` : process.env.RENDER_EXTERNAL_URL || `https://stremio-imdb-ratings.onrender.com`
+// IP address of your Raspberry Pi
+const HOST_IP = '192.168.1.161'
 
-// Create Express app
-const app = express()
-
-// Setup the overlay service routes on the same Express app
-setupOverlayService(app)
-
-// Create a new addon with proper configuration
+// Create a new addon with proper base URL
 const addon = new addonBuilder({
     id: 'org.imdbratings',
     version: '1.0.0',
@@ -30,11 +21,14 @@ const addon = new addonBuilder({
     resources: ['catalog'],
     types: ['movie', 'series'],
     catalogs: [],
-    // Use the auto-detected URL provided by Render
-    endpoint: `${HOST_URL}/manifest.json`,
-    logo: `${HOST_URL}/logo.png`,
-    background: `${HOST_URL}/background.jpg`
+    // Include this line to specify the correct base URL
+    background: `http://${HOST_IP}:7000/background.jpg`,
+    logo: `http://${HOST_IP}:7000/logo.png`,
+    contactEmail: 'your-email@example.com'
 })
+
+// Start the overlay service (on a different port)
+startOverlayService(OVERLAY_PORT, HOST_IP)
 
 // Helper function to fetch IMDB rating
 async function getIMDBRating(imdbId) {
@@ -50,9 +44,6 @@ async function getIMDBRating(imdbId) {
 
 // Define catalog handler
 addon.defineCatalogHandler(async ({ type, id, extra }) => {
-    // Log the request for debugging
-    console.log(`Received catalog request: ${type}/${id}`)
-    
     // Only proceed if we're dealing with a catalog
     if (!type || !id) {
         return { metas: [] }
@@ -61,11 +52,11 @@ addon.defineCatalogHandler(async ({ type, id, extra }) => {
     try {
         // First, call the original addon to get the catalog
         const originalAddonUrl = `https://v3-cinemeta.strem.io/catalog/${type}/${id}.json`
-        console.log(`Fetching catalog from: ${originalAddonUrl}`)
-        
         const response = await fetch(originalAddonUrl)
         const catalog = await response.json()
-        console.log(`Received ${catalog.metas ? catalog.metas.length : 0} items from Cinemeta`)
+
+        // Get the base URL for our overlay service
+        const baseUrl = `http://${HOST_IP}:${OVERLAY_PORT}`
 
         // Process each item to add IMDB rating
         const promises = catalog.metas.map(async (meta) => {
@@ -76,23 +67,14 @@ addon.defineCatalogHandler(async ({ type, id, extra }) => {
                 
                 if (rating && meta.poster) {
                     // Replace the poster URL with our overlay service URL
-                    const originalPoster = meta.poster
-                    
-                    // Use our overlay service URL
-                    // Note that we're now using the same domain since both 
-                    // services are combined in one Express app
-                    meta.poster = `${HOST_URL}/overlay?posterUrl=${encodeURIComponent(meta.poster)}&rating=${rating}&position=top-left`
-                    
-                    console.log(`Added rating overlay for ${imdbId}: ${rating}`)
-                    console.log(`Original poster: ${originalPoster}`)
-                    console.log(`New poster URL: ${meta.poster}`)
+                    // Position parameter: 'top-left' or 'bottom-left'
+                    meta.poster = `${baseUrl}/overlay?posterUrl=${encodeURIComponent(meta.poster)}&rating=${rating}&position=top-left`
                 }
             }
             return meta
         })
 
         const updatedMetas = await Promise.all(promises)
-        console.log(`Returning ${updatedMetas.length} items with ratings`)
         return { metas: updatedMetas }
     } catch (error) {
         console.error('Error in catalog handler:', error)
@@ -100,95 +82,29 @@ addon.defineCatalogHandler(async ({ type, id, extra }) => {
     }
 })
 
-// Add static file serving for the logo and background
-app.use(express.static('static'))
-
-// Add a specific route for manifest.json with proper CORS
-app.get('/manifest.json', (req, res) => {
-    res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Content-Type', 'application/json')
-    res.send(JSON.stringify(addon.getInterface()))
-})
-
-// Add health check endpoint
-app.get('/health', (req, res) => {
-    res.status(200).send('Addon service is running')
-})
-
-// Add a landing page that links to the manifest
-app.get('/', (req, res) => {
-    res.send(`
-        <!DOCTYPE html>
-        <html>
-            <head>
-                <title>IMDB Ratings Overlay for Stremio</title>
-                <style>
-                    body {
-                        font-family: Arial, sans-serif;
-                        max-width: 800px;
-                        margin: 0 auto;
-                        padding: 20px;
-                        line-height: 1.6;
-                    }
-                    .button {
-                        display: inline-block;
-                        background-color: #4CAF50;
-                        color: white;
-                        padding: 10px 20px;
-                        text-decoration: none;
-                        border-radius: 4px;
-                        font-weight: bold;
-                        margin-top: 20px;
-                    }
-                    pre {
-                        background-color: #f4f4f4;
-                        padding: 10px;
-                        border-radius: 4px;
-                        overflow-x: auto;
-                    }
-                </style>
-            </head>
-            <body>
-                <h1>IMDB Ratings Overlay for Stremio</h1>
-                <p>This addon displays IMDB ratings directly on movie and series posters in Stremio.</p>
-                
-                <h2>How to install</h2>
-                <p>To install this addon in Stremio:</p>
-                <ol>
-                    <li>Open Stremio</li>
-                    <li>Go to the addons section</li>
-                    <li>Click "Add Addon URL" at the bottom of the page</li>
-                    <li>Enter this URL: <pre>${HOST_URL}/manifest.json</pre></li>
-                    <li>Click Install</li>
-                </ol>
-                
-                <a href="stremio://addon/${encodeURIComponent(HOST_URL + '/manifest.json')}" class="button">Install in Stremio</a>
-                
-                <h2>Information</h2>
-                <p>This addon uses the OMDB API to fetch ratings and overlays them on posters.</p>
-                <p>It works with movies and TV series.</p>
-                
-                <h2>Links</h2>
-                <ul>
-                    <li><a href="/manifest.json">Addon Manifest</a></li>
-                </ul>
-            </body>
-        </html>
-    `)
-})
-
-// Serve the addon using the Stremio SDK's serveHTTP function
-// This creates all the necessary Stremio endpoints AND starts the server
+// Start the addon with proper CORS settings
+const { serveHTTP } = require('stremio-addon-sdk')
 serveHTTP(addon.getInterface(), { 
-    port: PORT,
-    static: 'static',
-    cache: {
-        maxAge: 86400, // Cache for 24 hours
-        public: true
-    },
-    cors: true  // Enable CORS
+    port: 7000, 
+    host: '0.0.0.0', // Use 0.0.0.0 instead of specific IP to listen on all interfaces
+    static: null,
+    customHandler: (req, res) => {
+        // Set proper CORS headers
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Headers', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        
+        // For OPTIONS requests (preflight), return immediately
+        if (req.method === 'OPTIONS') {
+            res.writeHead(204);
+            res.end();
+            return true; // Indicate that we've handled the request
+        }
+        
+        return false; // Let the default handler continue for non-OPTIONS requests
+    }
 })
 
-// We don't need app.listen() anymore since serveHTTP handles that
-console.log(`IMDB Ratings addon running on port ${PORT}`)
-console.log(`Add this URL in Stremio: ${HOST_URL}/manifest.json`)
+console.log(`IMDB Ratings addon running at http://${HOST_IP}:7000`)
+console.log(`Overlay service running at http://${HOST_IP}:7001`)
+console.log(`Add this URL in Stremio: http://${HOST_IP}:7000/manifest.json`)
