@@ -1,4 +1,4 @@
-// server.js - Simplified Stremio IMDB Ratings Addon
+// index.js - Simplified Stremio IMDB Ratings Addon
 const { addonBuilder } = require('stremio-addon-sdk')
 const fetch = require('node-fetch')
 const express = require('express')
