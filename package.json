@@ -4,11 +4,7 @@
   "description": "Stremio addon that displays IMDB ratings on posters",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "NODE_ENV=development nodemon index.js"
-  },
-  "engines": {
-    "node": ">=14.0.0"
+    "start": "node index.js"
   },
   "dependencies": {
     "canvas": "^2.11.0",
@@ -17,7 +13,7 @@
     "node-fetch": "^2.6.9",
     "stremio-addon-sdk": "^1.6.10"
   },
-  "devDependencies": {
-    "nodemon": "^2.0.22"
+  "engines": {
+    "node": ">=14"
   }
 }
