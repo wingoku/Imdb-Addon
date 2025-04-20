@@ -6,11 +6,11 @@ const { startOverlayService } = require('./overlay-service')
 // Replace with your actual OMDB API key
 const OMDB_API_KEY = '1aa1dd73'
 
-// Overlay service port
-const OVERLAY_PORT = 7001
+// Get port from environment variable (Render provides this)
+const PORT = process.env.PORT || 3000
 
-// IP address of your Raspberry Pi
-const HOST_IP = '192.168.1.161'
+// Get the hostname from environment or use localhost for local development
+const BASE_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`
 
 // Create a new addon with proper base URL
 const addon = new addonBuilder({
@@ -21,14 +21,15 @@ const addon = new addonBuilder({
     resources: ['catalog'],
     types: ['movie', 'series'],
     catalogs: [],
-    // Include this line to specify the correct base URL
-    background: `http://${HOST_IP}:7000/background.jpg`,
-    logo: `http://${HOST_IP}:7000/logo.png`,
+    // Use the Render URL for assets
+    background: `${BASE_URL}/background.jpg`,
+    logo: `${BASE_URL}/logo.png`,
     contactEmail: 'your-email@example.com'
 })
 
-// Start the overlay service (on a different port)
-startOverlayService(OVERLAY_PORT, HOST_IP)
+// No need for a separate overlay service port on Render
+// We'll use the same service with different routes
+startOverlayService(PORT, BASE_URL)
 
 // Helper function to fetch IMDB rating
 async function getIMDBRating(imdbId) {
@@ -55,9 +56,6 @@ addon.defineCatalogHandler(async ({ type, id, extra }) => {
         const response = await fetch(originalAddonUrl)
         const catalog = await response.json()
 
-        // Get the base URL for our overlay service
-        const baseUrl = `http://${HOST_IP}:${OVERLAY_PORT}`
-
         // Process each item to add IMDB rating
         const promises = catalog.metas.map(async (meta) => {
             // Only process items with IMDB IDs
@@ -68,7 +66,7 @@ addon.defineCatalogHandler(async ({ type, id, extra }) => {
                 if (rating && meta.poster) {
                     // Replace the poster URL with our overlay service URL
                     // Position parameter: 'top-left' or 'bottom-left'
-                    meta.poster = `${baseUrl}/overlay?posterUrl=${encodeURIComponent(meta.poster)}&rating=${rating}&position=top-left`
+                    meta.poster = `${BASE_URL}/overlay?posterUrl=${encodeURIComponent(meta.poster)}&rating=${rating}&position=top-left`
                 }
             }
             return meta
@@ -85,8 +83,8 @@ addon.defineCatalogHandler(async ({ type, id, extra }) => {
 // Start the addon with proper CORS settings
 const { serveHTTP } = require('stremio-addon-sdk')
 serveHTTP(addon.getInterface(), { 
-    port: 7000, 
-    host: '0.0.0.0', // Use 0.0.0.0 instead of specific IP to listen on all interfaces
+    port: PORT, 
+    host: '0.0.0.0', // Use 0.0.0.0 to listen on all interfaces
     static: null,
     customHandler: (req, res) => {
         // Set proper CORS headers
@@ -105,6 +103,5 @@ serveHTTP(addon.getInterface(), {
     }
 })
 
-console.log(`IMDB Ratings addon running at http://${HOST_IP}:7000`)
-console.log(`Overlay service running at http://${HOST_IP}:7001`)
-console.log(`Add this URL in Stremio: http://${HOST_IP}:7000/manifest.json`)
+console.log(`IMDB Ratings addon running at ${BASE_URL}`)
+console.log(`Add this URL in Stremio: ${BASE_URL}/manifest.json`)
