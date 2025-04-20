@@ -16,7 +16,6 @@ const addon = new addonBuilder({
     version: '1.0.0',
     name: 'IMDB Ratings',
     description: 'Add IMDB ratings to movies and series',
-    // IMPORTANT: Define only the resources we actually use
     resources: ['meta'],
     types: ['movie', 'series'],
     idPrefixes: ['tt'],  // Only handle IMDB IDs
@@ -124,13 +123,20 @@ app.get('/test-omdb/:imdbId', async (req, res) => {
 })
 
 // Serve the addon on our express app
+// IMPORTANT: We're using the SDK's serveHTTP method with our Express app
+// This avoids creating two separate servers and prevents the port conflict
 const { serveHTTP } = require('stremio-addon-sdk')
-serveHTTP(addon.getInterface(), { app, port: PORT })
-
-app.listen(PORT, () => {
-    console.log(`IMDB Ratings addon running on port ${PORT}`)
-    console.log(`Add this URL in Stremio: http://localhost:${PORT}/manifest.json`)
-    if (process.env.RENDER_EXTERNAL_URL) {
-        console.log(`Or this URL if deployed on Render: ${process.env.RENDER_EXTERNAL_URL}/manifest.json`)
-    }
+serveHTTP(addon.getInterface(), { 
+    app, // Pass our express app
+    port: PORT,
+    static: null // Don't serve static files
 })
+
+// IMPORTANT: We removed the app.listen() call here
+// This is what was causing the port conflict
+
+console.log(`IMDB Ratings addon running on port ${PORT}`)
+console.log(`Add this URL in Stremio: http://localhost:${PORT}/manifest.json`)
+if (process.env.RENDER_EXTERNAL_URL) {
+    console.log(`Or this URL if deployed on Render: ${process.env.RENDER_EXTERNAL_URL}/manifest.json`)
+}
