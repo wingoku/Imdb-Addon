@@ -4,7 +4,7 @@ const { createCanvas, loadImage } = require('canvas')
 const cors = require('cors')
 
 // Function to start the overlay service
-function startOverlayService(port, hostIP) {
+function startOverlayService(port, baseUrl) {
     const app = express()
     
     // Enable CORS for all routes
@@ -14,6 +14,7 @@ function startOverlayService(port, hostIP) {
         allowedHeaders: ['Content-Type', 'Authorization']
     }))
 
+    // Add a route for the overlay service
     app.get('/overlay', async (req, res) => {
         const { posterUrl, rating, position = 'top-left' } = req.query
         
@@ -69,10 +70,10 @@ function startOverlayService(port, hostIP) {
         res.status(200).send('Overlay service is running');
     });
 
-    // Start the server
-    app.listen(port, '0.0.0.0', () => { // Listen on all interfaces
-        console.log(`Overlay service started on port ${port}`)
-    })
+    // Note: We don't need to listen separately as this will be mounted on the main Express app
+    // This function is now just defining routes
+    
+    return app; // Return the app so it can be used by the main Express app
 }
 
 module.exports = { startOverlayService }
